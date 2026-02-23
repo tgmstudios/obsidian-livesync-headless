@@ -402,7 +402,7 @@ class HeadlessSync {
                     results.push(...subFiles);
                 } else {
                     const ext = path.extname(file.name).toLowerCase();
-                    if (['.md', '.png', '.jpg', '.jpeg', '.gif', '.pdf'].includes(ext)) {
+                    if (['.md', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.tex', '.log', '.aux'].includes(ext)) {
                         results.push(relativePath);
                     }
                 }

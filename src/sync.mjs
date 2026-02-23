@@ -7,30 +7,35 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import { loadConfig, getAuthUrl } from './config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Load configuration
-let config;
+// Load settings
+const settingsPath = path.join(__dirname, 'settings.json');
+let settings;
 try {
-    config = await loadConfig();
-    console.log('✓ Configuration loaded');
+    settings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    console.log('✓ Settings loaded');
 } catch (e) {
-    console.error('❌ Failed to load config:', e.message);
+    console.error('Failed to load settings:', e.message);
     process.exit(1);
 }
 
 // Configuration
-const VAULT_PATH = config.vaultPath;
-const E2EE_ENABLED = config.e2ee.enabled;
-const E2EE_PASSPHRASE = config.e2ee.passphrase;
-const SYNC_INTERVAL_MS = config.syncIntervalSeconds * 1000;
+const VAULT_PATH = path.resolve(process.env.HOME, 'obsidian/school/spring-2026');
+const E2EE_ENABLED = false; // Set to true if you enable E2EE in LiveSync
+const E2EE_PASSPHRASE = 'password'; // Only used if E2EE_ENABLED is true
+const SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
 const BATCH_SIZE = 500;
 
 // CouchDB connection
-const remoteUrl = `${config.couchDB.uri}/${config.couchDB.database}`;
-const authUrl = getAuthUrl(config);
+const COUCH_URI = settings.couchDB_URI;
+const COUCH_USER = settings.couchDB_USER;
+const COUCH_PASS = settings.couchDB_PASSWORD;
+const COUCH_DB = settings.couchDB_DBNAME;
+
+const remoteUrl = `${COUCH_URI}/${COUCH_DB}`;
+const authUrl = COUCH_URI.replace('https://', `https://${COUCH_USER}:${COUCH_PASS}@`) + `/${COUCH_DB}`;
 
 // Crypto constants
 const webcrypto = globalThis.crypto;
@@ -458,11 +463,12 @@ class HeadlessSync {
         }
         
         // Build the file document (exact LiveSync format)
-        const docId = filepath;
+        // CRITICAL: Document ID must be lowercase (LiveSync behavior)
+        const docId = filepath.toLowerCase();
         const doc = {
             _id: docId,
             type: isBinary ? EntryTypes.NOTE_BINARY : EntryTypes.NOTE_PLAIN,
-            path: filepath,
+            path: filepath, // Original case preserved in path field
             mtime: stats.mtimeMs,
             ctime: stats.birthtimeMs,
             size: stats.size,

@@ -30,7 +30,7 @@ Perfect for:
 ### 1. Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/obsidian-livesync-headless.git
+git clone https://github.com/tgmstudios/obsidian-livesync-headless.git
 cd obsidian-livesync-headless
 npm install
 ```
@@ -255,9 +255,9 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- 🐛 **Bug reports**: [GitHub Issues](https://github.com/YOUR_USERNAME/obsidian-livesync-headless/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/obsidian-livesync-headless/discussions)
-- 📧 **Email**: your-email@example.com
+- 🐛 **Bug reports**: [GitHub Issues](https://github.com/tgmstudios/obsidian-livesync-headless/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/tgmstudios/obsidian-livesync-headless/discussions)
+- 📧 **Email**: aiden.johnson@tgmstudios.net
 
 ---
 

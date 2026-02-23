@@ -6,7 +6,7 @@ Thank you for your interest in contributing! 🎉
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/YOUR_USERNAME/obsidian-livesync-headless/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/tgmstudios/obsidian-livesync-headless/issues)
 2. If not, create a new issue with:
    - Clear title and description
    - Steps to reproduce
@@ -16,7 +16,7 @@ Thank you for your interest in contributing! 🎉
 
 ### Suggesting Features
 
-1. Check [Discussions](https://github.com/YOUR_USERNAME/obsidian-livesync-headless/discussions) for similar ideas
+1. Check [Discussions](https://github.com/tgmstudios/obsidian-livesync-headless/discussions) for similar ideas
 2. Open a new discussion or issue describing:
    - The use case
    - How it would work
@@ -35,7 +35,7 @@ Thank you for your interest in contributing! 🎉
 ## Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/obsidian-livesync-headless.git
+git clone https://github.com/tgmstudios/obsidian-livesync-headless.git
 cd obsidian-livesync-headless
 npm install
 npm run setup  # Configure for testing
@@ -73,4 +73,4 @@ By contributing, you agree your contributions will be licensed under the MIT Lic
 
 ## Questions?
 
-Open a [Discussion](https://github.com/YOUR_USERNAME/obsidian-livesync-headless/discussions) or reach out!
+Open a [Discussion](https://github.com/tgmstudios/obsidian-livesync-headless/discussions) or reach out!

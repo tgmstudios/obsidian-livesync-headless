@@ -26,16 +26,16 @@
     "notes",
     "markdown"
   ],
-  "author": "Your Name <your-email@example.com>",
+  "author": "Aiden Johnson <aiden.johnson@tgmstudios.net>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless.git"
+    "url": "https://github.com/tgmstudios/obsidian-livesync-headless.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless/issues"
+    "url": "https://github.com/tgmstudios/obsidian-livesync-headless/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless#readme",
+  "homepage": "https://github.com/tgmstudios/obsidian-livesync-headless#readme",
   "dependencies": {
     "pouchdb": "^8.0.1"
   },

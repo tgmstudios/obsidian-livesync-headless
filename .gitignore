@@ -1,0 +1,26 @@
+# Config (contains credentials)
+config.json
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# State
+sync-state.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp
+/tmp/

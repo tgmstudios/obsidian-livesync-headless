@@ -1,0 +1,14 @@
+{
+  "vaultPath": "/home/user/obsidian/my-vault",
+  "couchDB": {
+    "uri": "https://obsidian.example.com",
+    "database": "obsidian-vault",
+    "username": "admin",
+    "password": "your-secure-password-here"
+  },
+  "e2ee": {
+    "enabled": false,
+    "passphrase": ""
+  },
+  "syncIntervalSeconds": 30
+}

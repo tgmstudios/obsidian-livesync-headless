@@ -1,0 +1,46 @@
+{
+  "name": "obsidian-livesync-headless",
+  "version": "1.0.0",
+  "description": "Bidirectional sync for Obsidian vaults on headless Linux servers using the LiveSync protocol",
+  "main": "src/sync.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node src/sync.mjs",
+    "daemon": "node src/sync.mjs --daemon",
+    "setup": "node src/setup.mjs",
+    "install-service": "node src/install-service.mjs",
+    "uninstall-service": "node src/uninstall-service.mjs",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "bin": {
+    "obsidian-livesync-headless": "./src/cli.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "livesync",
+    "sync",
+    "couchdb",
+    "headless",
+    "backup",
+    "automation",
+    "notes",
+    "markdown"
+  ],
+  "author": "Your Name <your-email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/obsidian-livesync-headless#readme",
+  "dependencies": {
+    "pouchdb": "^8.0.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -10,15 +10,19 @@ import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Load settings
+// Load settings lazily so utility exports can be tested without a live config.
 const settingsPath = path.join(__dirname, 'settings.json');
 let settings;
-try {
-    settings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
-    console.log('✓ Settings loaded');
-} catch (e) {
-    console.error('Failed to load settings:', e.message);
-    process.exit(1);
+async function loadSettings() {
+    if (settings) return settings;
+    try {
+        settings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+        console.log('✓ Settings loaded');
+        return settings;
+    } catch (e) {
+        console.error('Failed to load settings:', e.message);
+        process.exit(1);
+    }
 }
 
 // Configuration
@@ -37,14 +41,17 @@ if (PULL_ONLY) {
     console.log('⚠️  PULL-ONLY MODE ENABLED - Uploads disabled');
 }
 
-// CouchDB connection
-const COUCH_URI = settings.couchDB_URI;
-const COUCH_USER = settings.couchDB_USER;
-const COUCH_PASS = settings.couchDB_PASSWORD;
-const COUCH_DB = settings.couchDB_DBNAME;
-
-const remoteUrl = `${COUCH_URI}/${COUCH_DB}`;
-const authUrl = COUCH_URI.replace('https://', `https://${COUCH_USER}:${COUCH_PASS}@`) + `/${COUCH_DB}`;
+let remoteUrl = null;
+let authUrl = null;
+async function configureRemote() {
+    const loadedSettings = await loadSettings();
+    const couchUri = loadedSettings.couchDB_URI;
+    const couchUser = loadedSettings.couchDB_USER;
+    const couchPass = loadedSettings.couchDB_PASSWORD;
+    const couchDb = loadedSettings.couchDB_DBNAME;
+    remoteUrl = `${couchUri}/${couchDb}`;
+    authUrl = couchUri.replace('https://', `https://${encodeURIComponent(couchUser)}:${encodeURIComponent(couchPass)}@`) + `/${couchDb}`;
+}
 
 // Crypto constants
 const webcrypto = globalThis.crypto;
@@ -209,11 +216,30 @@ async function decryptWithEphemeralSalt(input, passphrase) {
 }
 
 // Generate chunk ID based on content hash (like LiveSync does)
-function generateChunkId(content, passphrase) {
+export function generateChunkId(content, passphrase) {
     const hash = crypto.createHash('sha256');
     hash.update(content);
     hash.update(passphrase);
     return 'h:' + hash.digest('hex').substring(0, 40);
+}
+
+export function decodeBinaryChunks(chunks) {
+    // LiveSync stores every binary chunk as its own base64 string. Those strings
+    // must be decoded independently: concatenating padded base64 chunks makes
+    // Node stop decoding at the first '=' and silently truncates PDFs/images.
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk || '', 'base64')));
+}
+
+export function encodeFileToChunks(content, isBinary, chunkSize = 100000) {
+    if (!isBinary) {
+        return [content.toString('utf8')];
+    }
+
+    const chunks = [];
+    for (let offset = 0; offset < content.length; offset += chunkSize) {
+        chunks.push(content.subarray(offset, offset + chunkSize).toString('base64'));
+    }
+    return chunks.length > 0 ? chunks : [''];
 }
 
 // File operations
@@ -239,6 +265,7 @@ class HeadlessSync {
     }
 
     async init() {
+        await configureRemote();
         console.log('Initializing LiveSync-compatible sync...');
         console.log(`Vault path: ${VAULT_PATH}`);
         console.log(`Remote DB: ${remoteUrl}`);
@@ -314,19 +341,10 @@ class HeadlessSync {
         }
         
         // Get file content from chunks
-        let content = '';
+        let content = entry.type === EntryTypes.NOTE_BINARY ? Buffer.alloc(0) : '';
         if (entry.children && entry.children.length > 0) {
             const chunks = await this.fetchChunksForFile(entry.children);
-            content = chunks.join('');
-        }
-        
-        // Handle binary files (base64 decode)
-        if (entry.type === EntryTypes.NOTE_BINARY && content) {
-            try {
-                content = Buffer.from(content, 'base64');
-            } catch (e) {
-                console.warn(`Failed to decode base64 for ${filePath}:`, e.message);
-            }
+            content = entry.type === EntryTypes.NOTE_BINARY ? decodeBinaryChunks(chunks) : chunks.join('');
         }
         
         const fullPath = path.join(VAULT_PATH, filePath);
@@ -433,42 +451,36 @@ class HeadlessSync {
         const content = await fs.readFile(fullPath);
         const isBinary = !filepath.endsWith('.md');
         
-        // Prepare content
-        let textContent;
-        if (isBinary) {
-            textContent = content.toString('base64');
-        } else {
-            textContent = content.toString('utf8');
-        }
-        
-        // Encrypt content only if E2EE is enabled
-        let chunkData;
-        if (E2EE_ENABLED) {
-            chunkData = await encryptWithEphemeralSalt(textContent, E2EE_PASSPHRASE);
-        } else {
-            chunkData = textContent; // Store plain text
-        }
-        
-        // Generate chunk ID based on content hash (LiveSync way)
-        const chunkId = generateChunkId(textContent, E2EE_ENABLED ? E2EE_PASSPHRASE : '');
-        
-        // Create chunk document
-        const chunkDoc = {
-            _id: chunkId,
-            type: EntryTypes.CHUNK,
-            data: chunkData
-        };
-        
-        // Upload chunk first
-        try {
-            const existingChunk = await this.remoteDb.get(chunkId).catch(() => null);
-            if (existingChunk) {
-                chunkDoc._rev = existingChunk._rev;
+        // Prepare chunk contents. Binary chunks must be separately base64-encoded;
+        // concatenating one whole-file base64 string and then splitting it corrupts
+        // decode boundaries for PDFs/images.
+        const plainChunks = encodeFileToChunks(content, isBinary);
+        const uploadedChunkIds = [];
+
+        for (const plainChunk of plainChunks) {
+            const chunkData = E2EE_ENABLED
+                ? await encryptWithEphemeralSalt(plainChunk, E2EE_PASSPHRASE)
+                : plainChunk;
+
+            const chunkId = generateChunkId(plainChunk, E2EE_ENABLED ? E2EE_PASSPHRASE : '');
+            uploadedChunkIds.push(chunkId);
+
+            const chunkDoc = {
+                _id: chunkId,
+                type: EntryTypes.CHUNK,
+                data: chunkData
+            };
+
+            try {
+                const existingChunk = await this.remoteDb.get(chunkId).catch(() => null);
+                if (existingChunk) {
+                    chunkDoc._rev = existingChunk._rev;
+                }
+                await this.remoteDb.put(chunkDoc);
+            } catch (e) {
+                console.warn(`Failed to upload chunk for ${filepath}:`, e.message);
+                throw e;
             }
-            await this.remoteDb.put(chunkDoc);
-        } catch (e) {
-            console.warn(`Failed to upload chunk for ${filepath}:`, e.message);
-            throw e;
         }
         
         // Build the file document (exact LiveSync format)
@@ -481,7 +493,7 @@ class HeadlessSync {
             mtime: stats.mtimeMs,
             ctime: stats.birthtimeMs,
             size: stats.size,
-            children: [chunkId],
+            children: uploadedChunkIds,
             eden: {},
             deleted: false
         };
@@ -494,7 +506,7 @@ class HeadlessSync {
             // Delete old chunks if different
             if (existing.children && existing.children.length > 0) {
                 for (const oldChunkId of existing.children) {
-                    if (oldChunkId !== chunkId) {
+                    if (!uploadedChunkIds.includes(oldChunkId)) {
                         try {
                             const oldChunk = await this.remoteDb.get(oldChunkId);
                             await this.remoteDb.remove(oldChunk);
@@ -604,4 +616,6 @@ async function main() {
     }
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) {
+    main();
+}

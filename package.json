@@ -10,7 +10,7 @@
     "setup": "node src/setup.mjs",
     "install-service": "node src/install-service.mjs",
     "uninstall-service": "node src/uninstall-service.mjs",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "node --test"
   },
   "bin": {
     "obsidian-livesync-headless": "./src/cli.mjs"

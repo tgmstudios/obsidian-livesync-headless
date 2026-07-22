@@ -11,7 +11,8 @@ import crypto from 'crypto';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Load settings lazily so utility exports can be tested without a live config.
-const settingsPath = path.join(__dirname, 'settings.json');
+// config.json is the headless-sync configuration, using the documented schema.
+const settingsPath = path.join(__dirname, 'config.json');
 let settings;
 async function loadSettings() {
     if (settings) return settings;
@@ -21,16 +22,27 @@ async function loadSettings() {
         return settings;
     } catch (e) {
         console.error('Failed to load settings:', e.message);
+        console.error(`Expected a config.json at: ${settingsPath}`);
+        console.error('Migrate the existing settings.json before starting the service.');
         process.exit(1);
     }
 }
 
-// Configuration
-const VAULT_PATH = path.resolve(process.env.HOME, 'obsidian/school/spring-2026');
-const E2EE_ENABLED = false; // Set to true if you enable E2EE in LiveSync
-const E2EE_PASSPHRASE = 'password'; // Only used if E2EE_ENABLED is true
-const SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
+// Configuration - populated from config.json by configureRemote().
+let VAULT_PATH = process.cwd();
+let E2EE_ENABLED = false;
+let E2EE_PASSPHRASE = '';
+let SYNC_INTERVAL_MS = 30 * 1000;
+const DEFAULT_SYNC_INTERVAL_SECONDS = 30;
+const MIN_SYNC_INTERVAL_SECONDS = 1;
 const BATCH_SIZE = 500;
+
+export function normalizeSyncIntervalSeconds(value) {
+    const seconds = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(seconds) && seconds >= MIN_SYNC_INTERVAL_SECONDS
+        ? seconds
+        : DEFAULT_SYNC_INTERVAL_SECONDS;
+}
 
 // Check for pull-only mode (file-based flag or env variable)
 import { existsSync } from 'fs';
@@ -45,12 +57,20 @@ let remoteUrl = null;
 let authUrl = null;
 async function configureRemote() {
     const loadedSettings = await loadSettings();
-    const couchUri = loadedSettings.couchDB_URI;
-    const couchUser = loadedSettings.couchDB_USER;
-    const couchPass = loadedSettings.couchDB_PASSWORD;
-    const couchDb = loadedSettings.couchDB_DBNAME;
+    const couchUri = loadedSettings.couchDB.uri;
+    const couchUser = loadedSettings.couchDB.username;
+    const couchPass = loadedSettings.couchDB.password;
+    const couchDb = loadedSettings.couchDB.database;
     remoteUrl = `${couchUri}/${couchDb}`;
-    authUrl = couchUri.replace('https://', `https://${encodeURIComponent(couchUser)}:${encodeURIComponent(couchPass)}@`) + `/${couchDb}`;
+    const authed = new URL(remoteUrl);
+    authed.username = couchUser;
+    authed.password = couchPass;
+    authUrl = authed.toString();
+
+    VAULT_PATH = path.resolve(loadedSettings.vaultPath);
+    E2EE_ENABLED = !!loadedSettings.e2ee?.enabled;
+    E2EE_PASSPHRASE = loadedSettings.e2ee?.passphrase ?? '';
+    SYNC_INTERVAL_MS = normalizeSyncIntervalSeconds(loadedSettings.syncIntervalSeconds) * 1000;
 }
 
 // Crypto constants

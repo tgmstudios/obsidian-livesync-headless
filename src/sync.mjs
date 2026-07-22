@@ -35,7 +35,16 @@ let VAULT_PATH = process.cwd();
 let E2EE_ENABLED = false;
 let E2EE_PASSPHRASE = '';
 let SYNC_INTERVAL_MS = 30 * 1000;
+const DEFAULT_SYNC_INTERVAL_SECONDS = 30;
+const MIN_SYNC_INTERVAL_SECONDS = 1;
 const BATCH_SIZE = 500;
+
+export function normalizeSyncIntervalSeconds(value) {
+    const seconds = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(seconds) && seconds >= MIN_SYNC_INTERVAL_SECONDS
+        ? seconds
+        : DEFAULT_SYNC_INTERVAL_SECONDS;
+}
 
 let remoteUrl = null;
 let authUrl = null;
@@ -57,7 +66,7 @@ async function configureRemote() {
     VAULT_PATH = path.resolve(loadedSettings.vaultPath);
     E2EE_ENABLED = !!loadedSettings.e2ee?.enabled;
     E2EE_PASSPHRASE = loadedSettings.e2ee?.passphrase ?? '';
-    SYNC_INTERVAL_MS = (loadedSettings.syncIntervalSeconds ?? 30) * 1000;
+    SYNC_INTERVAL_MS = normalizeSyncIntervalSeconds(loadedSettings.syncIntervalSeconds) * 1000;
 }
 
 // Crypto constants

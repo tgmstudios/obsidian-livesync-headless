@@ -76,7 +76,9 @@ const PBKDF2_ITERATIONS = 310000;
 const HKDF_SALT_LENGTH = 32;
 const PBKDF2_SALT_LENGTH = 32;
 const gcmTagLength = 128;
-const HKDF_SALTED_ENCRYPTED_PREFIX = "%$";
+const HKDF_SALTED_ENCRYPTED_PREFIX = "%$"; // ephemeral-salt scheme
+const HKDF_ENCRYPTED_PREFIX = "%="; // standard scheme -- the real plugin's actual default (E2EEAlgorithm v2 / ADVANCED_E2EE)
+const SYNC_PARAMETERS_DOCID = "_local/obsidian_livesync_sync_parameters";
 
 // Entry types
 const EntryTypes = {
@@ -231,6 +233,82 @@ async function decryptWithEphemeralSalt(input, passphrase) {
     return readString(new Uint8Array(decryptedBuffer));
 }
 
+// --- "Standard" (non-ephemeral) scheme -- the real plugin's actual default   ---
+// --- (E2EEAlgorithm: v2, internally ADVANCED_E2EE). Unlike the ephemeral     ---
+// --- scheme above, the PBKDF2 salt is persisted ONCE (not embedded per       ---
+// --- message) in a CouchDB _local/ document -- see fetchPbkdf2Salt below.    ---
+// --- Byte layout: [IV(12)][hkdfSalt(32)][ciphertext+tag] -- no leading salt. ---
+// --- Verified against the plugin's own compiled source (deriveMasterKey /    ---
+// --- deriveKey are unchanged from the existing ephemeral-scheme functions    ---
+// --- above; only the persisted-vs-embedded salt and byte layout differ).     ---
+const pbkdf2SaltCache = new Map();
+
+async function fetchPbkdf2Salt(remoteDb) {
+    const cacheKey = remoteDb.name || 'default';
+    if (pbkdf2SaltCache.has(cacheKey)) {
+        return pbkdf2SaltCache.get(cacheKey);
+    }
+    const doc = await remoteDb.get(SYNC_PARAMETERS_DOCID);
+    if (!doc.pbkdf2salt) {
+        throw new Error(`${SYNC_PARAMETERS_DOCID} has no pbkdf2salt field`);
+    }
+    const salt = base64ToArrayBuffer(doc.pbkdf2salt);
+    pbkdf2SaltCache.set(cacheKey, salt);
+    return salt;
+}
+
+async function encryptStandard(input, passphrase, pbkdf2Salt) {
+    const hkdfSalt = webcrypto.getRandomValues(new Uint8Array(HKDF_SALT_LENGTH));
+    const iv = webcrypto.getRandomValues(new Uint8Array(IV_LENGTH));
+    const key = await deriveKey(passphrase, pbkdf2Salt, hkdfSalt);
+    const plaintext = writeString(input);
+
+    const encryptedData = await webcrypto.subtle.encrypt(
+        { name: "AES-GCM", iv, tagLength: gcmTagLength },
+        key,
+        plaintext
+    );
+
+    const combined = new Uint8Array(IV_LENGTH + HKDF_SALT_LENGTH + encryptedData.byteLength);
+    combined.set(iv, 0);
+    combined.set(hkdfSalt, IV_LENGTH);
+    combined.set(new Uint8Array(encryptedData), IV_LENGTH + HKDF_SALT_LENGTH);
+
+    return HKDF_ENCRYPTED_PREFIX + arrayBufferToBase64(combined);
+}
+
+async function decryptStandard(input, passphrase, pbkdf2Salt) {
+    if (!input.startsWith(HKDF_ENCRYPTED_PREFIX)) {
+        throw new Error(`Expected '${HKDF_ENCRYPTED_PREFIX}' prefix.`);
+    }
+
+    const base64Data = input.slice(HKDF_ENCRYPTED_PREFIX.length);
+    const encryptedBuffer = base64ToArrayBuffer(base64Data);
+
+    const minLength = IV_LENGTH + HKDF_SALT_LENGTH;
+    if (encryptedBuffer.length < minLength) {
+        throw new Error("Invalid data length.");
+    }
+
+    let offset = 0;
+    const iv = encryptedBuffer.slice(offset, offset + IV_LENGTH);
+    offset += IV_LENGTH;
+
+    const hkdfSalt = encryptedBuffer.slice(offset, offset + HKDF_SALT_LENGTH);
+    offset += HKDF_SALT_LENGTH;
+
+    const encryptedData = encryptedBuffer.slice(offset);
+
+    const key = await deriveKey(passphrase, pbkdf2Salt, hkdfSalt);
+    const decryptedBuffer = await webcrypto.subtle.decrypt(
+        { name: "AES-GCM", iv, tagLength: gcmTagLength },
+        key,
+        encryptedData
+    );
+
+    return readString(new Uint8Array(decryptedBuffer));
+}
+
 // Generate chunk ID based on content hash (like LiveSync does)
 export function generateChunkId(content, passphrase) {
     const hash = crypto.createHash('sha256');
@@ -313,9 +391,13 @@ class HeadlessSync {
             
             try {
                 const chunkDoc = await this.remoteDb.get(chunkId);
-                // Get data (decrypt only if E2EE is enabled)
+                // Get data (decrypt only if E2EE is enabled) -- dispatch on prefix: the
+                // real plugin's default is the standard scheme (%=), not ephemeral (%$)
                 let data = chunkDoc.data;
-                if (E2EE_ENABLED && typeof data === 'string' && data.startsWith(HKDF_SALTED_ENCRYPTED_PREFIX)) {
+                if (E2EE_ENABLED && typeof data === 'string' && data.startsWith(HKDF_ENCRYPTED_PREFIX)) {
+                    const pbkdf2Salt = await fetchPbkdf2Salt(this.remoteDb);
+                    data = await decryptStandard(data, E2EE_PASSPHRASE, pbkdf2Salt);
+                } else if (E2EE_ENABLED && typeof data === 'string' && data.startsWith(HKDF_SALTED_ENCRYPTED_PREFIX)) {
                     data = await decryptWithEphemeralSalt(data, E2EE_PASSPHRASE);
                 }
                 this.chunkCache.set(chunkId, data);
@@ -478,11 +560,14 @@ class HeadlessSync {
         const isBinary = !filepath.endsWith('.md');
         const chunkContents = encodeFileToChunks(content, isBinary);
         
-        // Encrypt content only if E2EE is enabled
+        // Encrypt content only if E2EE is enabled -- use the standard scheme (%=),
+        // matching the real plugin's default, not the ephemeral scheme (%$), which
+        // the plugin's default install never actually produces.
+        const pbkdf2Salt = E2EE_ENABLED ? await fetchPbkdf2Salt(this.remoteDb) : null;
         const uploadedChunkIds = [];
         for (const textContent of chunkContents) {
             const chunkData = E2EE_ENABLED
-                ? await encryptWithEphemeralSalt(textContent, E2EE_PASSPHRASE)
+                ? await encryptStandard(textContent, E2EE_PASSPHRASE, pbkdf2Salt)
                 : textContent;
             const chunkId = generateChunkId(textContent, E2EE_ENABLED ? E2EE_PASSPHRASE : '');
             const chunkDoc = {
